@@ -23,10 +23,16 @@
     <ClInclude Include="echoauth\memory.hpp">
       <Filter>EchoAuth</Filter>
     </ClInclude>
-    <ClInclude Include="echoauth\response.hpp">
+    <ClInclude Include="echoauth\security.hpp">
       <Filter>EchoAuth</Filter>
     </ClInclude>
-    <ClInclude Include="echoauth\security.hpp">
+    <ClInclude Include="echoauth\process_monitor.hpp">
+      <Filter>EchoAuth</Filter>
+    </ClInclude>
+    <ClInclude Include="echoauth\string_encryption.hpp">
+      <Filter>EchoAuth</Filter>
+    </ClInclude>
+    <ClInclude Include="echoauth\response.hpp">
       <Filter>EchoAuth</Filter>
     </ClInclude>
   </ItemGroup>

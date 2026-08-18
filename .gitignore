@@ -12,6 +12,12 @@ Win32/
 *.sln.user
 *.vcxproj.user
 *.vcxproj.filters.user
+*.db
+*.db-shm
+*.db-wal
+*.opendb
+*.backup.json
+.suo
 
 # Build output and artifacts
 *.obj

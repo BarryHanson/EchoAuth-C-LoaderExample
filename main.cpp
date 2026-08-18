@@ -5,6 +5,8 @@
 #include "echoauth/exceptions.hpp"
 #include "security.hpp"
 #include "memory.hpp"
+#include "echoauth/string_encryption.hpp"
+#include "echoauth/process_monitor.hpp"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -15,9 +17,11 @@
 
 //Replace these values with your own from the EchoAuth dashboard
 namespace Config {
-	const char* API_URL = "http://62.72.7.120:3001"; //replace with your EchoAuth API URL (currently localhost for testing)
-	const char* API_SECRET = "secret_a7544bad113a54f9dfcbe9729929b3091f70597003dd7b70e6e065d3c8148310"; //get it from your dashboard -> settings -> api
-    const char* XOR_KEY = "secure_xor_key_12345";
+	// Encrypted sensitive strings to hide from static analysis
+	static std::string get_api_url() { return ENCRYPT_STR("http://62.72.7.120:3001"); }
+	static std::string get_api_secret() { return ENCRYPT_STR("secret_a7544bad113a54f9dfcbe9729929b3091f70597003dd7b70e6e065d3c8148310"); }
+	static std::string get_xor_key() { return ENCRYPT_STR("secure_xor_key_12345"); }
+
     const int CHEAT_ID = 2;
     const int LOADER_ID = 1;
     const char* LOADER_VERSION = "1.0.0";
@@ -86,14 +90,21 @@ void debugger_monitor_thread(echoauth::EchoAuthClient* client) {
 //main function for the loader, handles authentication, version checking, cheat download, and execution
 int main() {
     try {
-		// Initialize EchoAuth client
-        echoauth::EchoAuthClient client(Config::API_URL, Config::API_SECRET, Config::VERIFY_SSL);
+		// Phase 2: Initial check for analysis environment (VMs, obvious analysis tools)
+        if (ProcessMonitor::SuspiciousProcessDetector::detect_virtual_machine()) {
+            std::cerr << "[-] SECURITY VIOLATION: Virtual machine detected!\n";
+            return 1;
+        }
 
-		// Start debugger monitoring thread
+		// Start continuous background process monitoring (5-second intervals, optimized for low CPU)
+        ProcessMonitor::BackgroundMonitor::start_monitoring();
+
+		// Initialize EchoAuth client with decrypted config values
+        echoauth::EchoAuthClient client(Config::get_api_url(), Config::get_api_secret(), Config::VERIFY_SSL);
+
+		// Start debugger monitoring thread (immediate detection)
         std::thread debug_monitor(debugger_monitor_thread, &client);
         debug_monitor.detach();
-
-        std::cerr << "[*] Checking loader version...\n";
 
 		// Perform version check with the EchoAuth API
         try {
@@ -105,50 +116,45 @@ int main() {
 
 			// Check if the response indicates the loader is out of date or has an invalid filename
             if (version_response.find("\"isUpToDate\":false") != std::string::npos) {
-                std::cerr << "[-] Loader is out of date. Current: " << Config::LOADER_VERSION << "\n";
-                std::cerr << "[-] Please download the latest version.\n";
-                std::cerr << "\n[*] Press Enter to exit...\n";
-                std::cin.get();
+                std::cerr << "[-] Loader is out of date.\n";
                 return 1;
             }
 
 			// Check if the response indicates the loader filename does not match the expected filename
             if (version_response.find("\"filenameMatch\":false") != std::string::npos) {
-                std::cerr << "[-] Invalid loader filename. Expected: " << Config::LOADER_FILENAME <<
-                         ", Got: " << actual_filename << "\n";
-                std::cerr << "[-] Please use the official loader executable.\n";
-                std::cerr << "\n[*] Press Enter to exit...\n";
-                std::cin.get();
+                std::cerr << "[-] Invalid loader filename.\n";
                 return 1;
             }
-
-            std::cerr << "[+] Version check passed\n";
         } catch (const std::exception& e) {
             std::cerr << "[-] Version check failed: " << e.what() << "\n";
         }
 
 
-		// Prompt user for credentials
-        std::string username, password;
-        std::cerr << "Username: ";
-        std::getline(std::cin, username);
-        std::cerr << "Password: ";
-        std::getline(std::cin, password);
+		// Prompt user for credentials using SecureString to protect sensitive data in memory
+        StringEncryption::SecureString username, password;
+        {
+            std::string temp_username, temp_password;
+            std::cout << "Username: ";
+            std::getline(std::cin, temp_username);
+            std::cout << "Password: ";
+            std::getline(std::cin, temp_password);
+            username = StringEncryption::SecureString(temp_username);
+            password = StringEncryption::SecureString(temp_password);
+        }
 
         g_hwid = get_machine_hwid();
 
 		// Perform login with username, password, and HWID
-        echoauth::LoginResponse login_resp = client.login(username, password, g_hwid);
+        echoauth::LoginResponse login_resp = client.login(username.c_str(), password.c_str(), g_hwid);
 
-		//Check if login was successful, if not, print error message and exit
+		// Check if login was successful, if not, print error message and exit
         if (!login_resp.success) {
             std::cerr << "[-] Authentication failed: " << login_resp.message << "\n";
             return 1;
         }
 
-        g_username = username;
+        g_username = username.c_str();
         g_authenticated = true;
-        std::cerr << "[+] Login successful\n";
 
 
 		// Check for debugger after authentication
@@ -166,8 +172,8 @@ int main() {
             return 1;
         }
 
-		// Download the cheat module from the EchoAuth API
-        echoauth::CheatFileDownloadResponse download_resp = client.download_cheat(Config::CHEAT_ID, Config::XOR_KEY);
+		// Download the cheat module from the EchoAuth API using decrypted XOR key
+        echoauth::CheatFileDownloadResponse download_resp = client.download_cheat(Config::CHEAT_ID, Config::get_xor_key());
 
         if (!download_resp.success) {
             std::cerr << "[-] Download failed: " << download_resp.message << "\n";
@@ -188,7 +194,7 @@ int main() {
         }
 
 		// Decrypt the downloaded cheat module using XOR decryption
-        auto decrypted = echoauth::Crypto::xor_encrypt(download_resp.file_data, Config::XOR_KEY);
+        auto decrypted = echoauth::Crypto::xor_encrypt(download_resp.file_data, Config::get_xor_key());
 
 		// Validate the decrypted PE module to ensure it is a valid executable
         if (!echoauth::MemoryExecutor::validate_pe_header(decrypted)) {
@@ -206,16 +212,12 @@ int main() {
         return 0;
 
 	}
-	catch (const echoauth::Exception& e) { // Catch EchoAuth-specific exceptions
+	catch (const echoauth::Exception& e) {
         std::cerr << "[-] EchoAuth Error: " << e.what() << "\n";
-        std::cerr << "\n[*] Press Enter to exit...\n";
-        std::cin.get();
         return 1;
 	}
-	catch (const std::exception& e) { //  Catch standard exceptions
+	catch (const std::exception& e) {
         std::cerr << "[-] Error: " << e.what() << "\n";
-        std::cerr << "\n[*] Press Enter to exit...\n";
-        std::cin.get();
         return 1;
     }
 }
