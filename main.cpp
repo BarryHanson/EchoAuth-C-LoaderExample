@@ -15,10 +15,10 @@
 
 //Replace these values with your own from the EchoAuth dashboard
 namespace Config {
-	const char* API_URL = "http://localhost:3001"; //replace with your EchoAuth API URL (currently localhost for testing)
-	const char* API_SECRET = "secret_API_key"; //get it from your dashboard -> settings -> api
+	const char* API_URL = "http://62.72.7.120:3001"; //replace with your EchoAuth API URL (currently localhost for testing)
+	const char* API_SECRET = "secret_a7544bad113a54f9dfcbe9729929b3091f70597003dd7b70e6e065d3c8148310"; //get it from your dashboard -> settings -> api
     const char* XOR_KEY = "secure_xor_key_12345";
-    const int CHEAT_ID = 1;
+    const int CHEAT_ID = 2;
     const int LOADER_ID = 1;
     const char* LOADER_VERSION = "1.0.0";
     const char* LOADER_FILENAME = "EchoAuthLoader.exe";
@@ -157,16 +157,12 @@ int main() {
             std::string ban_body = "{\"username\":\"" + username + "\",\"hwid\":\"" + g_hwid +
                                   "\",\"reason\":\"Debugger detected during loader execution\"}";
             client.http_post("/api/client/ban", ban_body);
-            std::cerr << "\n[*] Press Enter to exit...\n";
-            std::cin.get();
             return 1;
         }
 
 		// Check if the process is running with elevated privileges (admin rights)
         if (!echoauth::Security::is_elevated()) {
             std::cerr << "[-] Process is not running with elevated privileges. Please run as administrator.\n";
-            std::cerr << "\n[*] Press Enter to exit...\n";
-            std::cin.get();
             return 1;
         }
 
@@ -180,11 +176,9 @@ int main() {
 
 		// Check if the cheat is marked as detected via the EchoAuth API and prompt the user for confirmation
         if (download_resp.cheat_status == "Detected") {
-
             std::cerr << "\n[!] Cheat marked as detected. Continue? (Y/N): ";
             std::string response;
 
-			// Wait for user input with a timeout of 10 seconds
             std::getline(std::cin, response);
 
             if (response.empty() || (response[0] != 'Y' && response[0] != 'y')) {
