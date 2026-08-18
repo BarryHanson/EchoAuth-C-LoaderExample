@@ -82,6 +82,7 @@
   <ItemGroup>
     <ClInclude Include="echoauth\client.hpp" />
     <ClInclude Include="echoauth\crypto.hpp" />
+    <ClInclude Include="echoauth\echoauth.hpp" />
     <ClInclude Include="echoauth\exceptions.hpp" />
     <ClInclude Include="echoauth\memory.hpp" />
     <ClInclude Include="echoauth\process_monitor.hpp" />

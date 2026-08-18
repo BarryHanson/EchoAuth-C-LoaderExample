@@ -35,5 +35,8 @@
     <ClInclude Include="echoauth\response.hpp">
       <Filter>EchoAuth</Filter>
     </ClInclude>
+    <ClInclude Include="echoauth\echoauth.hpp">
+      <Filter>EchoAuth</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

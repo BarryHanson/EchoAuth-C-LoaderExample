@@ -1,8 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 
+#include "echoauth/echoauth.hpp"
 #include "echoauth/client.hpp"
-#include "echoauth/crypto.hpp"
-#include "echoauth/exceptions.hpp"
 #include "security.hpp"
 #include "memory.hpp"
 #include "echoauth/string_encryption.hpp"
@@ -13,6 +12,9 @@
 #include <atomic>
 #include <chrono>
 #include <windows.h>
+
+// Global client for EchoAuth wrapper
+echoauth::EchoAuthClient* EchoAuth::g_client = nullptr;
 
 
 //Replace these values with your own from the EchoAuth dashboard
@@ -66,18 +68,12 @@ std::string get_machine_hwid() {
     return hwidstr;
 }
 
-//thread function to monitor for debugger attachment(Thank you chatgpt)
-void debugger_monitor_thread(echoauth::EchoAuthClient* client) {
+void debugger_monitor_thread(echoauth::EchoAuthClient*) {
     while (true) {
         if (echoauth::Security::is_debugged()) {
             if (g_authenticated && !g_username.empty() && !g_hwid.empty()) {
-                try {
-                    std::string ban_body = "{\"username\":\"" + g_username + "\",\"hwid\":\"" + g_hwid + "\",\"reason\":\"Debugger attached during execution\"}";
-                    client->http_post("/api/client/ban", ban_body);
-
-                    std::string log_body = "{\"message\":\"Debugger detected during execution\",\"level\":\"critical\"}";
-                    client->http_post("/api/client/submit-log", log_body);
-                } catch (...) {}
+                EchoAuth::Ban(g_username, g_hwid, "Debugger attached during execution");
+                EchoAuth::Log("Debugger detected during execution", "critical");
             }
 
             std::cerr << "[-] SECURITY VIOLATION: Debugger detected!\n";
@@ -101,32 +97,16 @@ int main() {
 
 		// Initialize EchoAuth client with decrypted config values
         echoauth::EchoAuthClient client(Config::get_api_url(), Config::get_api_secret(), Config::VERIFY_SSL);
+        EchoAuth::g_client = &client;
 
 		// Start debugger monitoring thread (immediate detection)
         std::thread debug_monitor(debugger_monitor_thread, &client);
         debug_monitor.detach();
 
-		// Perform version check with the EchoAuth API
-        try {
-            std::string actual_filename = get_executable_filename();
-            std::string version_body = "{\"loaderId\":" + std::to_string(Config::LOADER_ID) +
-                                     ",\"currentVersion\":\"" + Config::LOADER_VERSION +
-                                     "\",\"filename\":\"" + actual_filename + "\"}";
-            std::string version_response = client.http_post("/api/client/loader/check-version", version_body);
-
-			// Check if the response indicates the loader is out of date or has an invalid filename
-            if (version_response.find("\"isUpToDate\":false") != std::string::npos) {
-                std::cerr << "[-] Loader is out of date.\n";
-                return 1;
-            }
-
-			// Check if the response indicates the loader filename does not match the expected filename
-            if (version_response.find("\"filenameMatch\":false") != std::string::npos) {
-                std::cerr << "[-] Invalid loader filename.\n";
-                return 1;
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "[-] Version check failed: " << e.what() << "\n";
+		// Check loader version
+        if (!EchoAuth::CheckVersion(Config::LOADER_ID, Config::LOADER_VERSION, get_executable_filename())) {
+            std::cerr << "[-] Loader is out of date or invalid filename.\n";
+            return 1;
         }
 
 
@@ -145,7 +125,7 @@ int main() {
         g_hwid = get_machine_hwid();
 
 		// Perform login with username, password, and HWID
-        echoauth::LoginResponse login_resp = client.login(username.c_str(), password.c_str(), g_hwid);
+        auto login_resp = EchoAuth::Login(username.c_str(), password.c_str(), g_hwid);
 
 		// Check if login was successful, if not, print error message and exit
         if (!login_resp.success) {
@@ -158,33 +138,30 @@ int main() {
 
 
 		// Check for debugger after authentication
-        if (echoauth::Security::is_debugged()) {
+        if (EchoAuth::IsDebugger()) {
             std::cerr << "[-] Debugger detected. Your account has been banned.\n";
-            std::string ban_body = "{\"username\":\"" + username + "\",\"hwid\":\"" + g_hwid +
-                                  "\",\"reason\":\"Debugger detected during loader execution\"}";
-            client.http_post("/api/client/ban", ban_body);
+            EchoAuth::Ban(username.c_str(), g_hwid, "Debugger detected during loader execution");
             return 1;
         }
 
 		// Check if the process is running with elevated privileges (admin rights)
-        if (!echoauth::Security::is_elevated()) {
+        if (!EchoAuth::IsElevated()) {
             std::cerr << "[-] Process is not running with elevated privileges. Please run as administrator.\n";
             return 1;
         }
 
-		// Download the cheat module from the EchoAuth API using decrypted XOR key
-        echoauth::CheatFileDownloadResponse download_resp = client.download_cheat(Config::CHEAT_ID, Config::get_xor_key());
+		// Download and decrypt cheat module
+        auto download_resp = EchoAuth::DownloadCheat(Config::CHEAT_ID, Config::get_xor_key());
 
         if (!download_resp.success) {
             std::cerr << "[-] Download failed: " << download_resp.message << "\n";
             return 1;
         }
 
-		// Check if the cheat is marked as detected via the EchoAuth API and prompt the user for confirmation
+		// Check if cheat is detected and prompt user
         if (download_resp.cheat_status == "Detected") {
-            std::cerr << "\n[!] Cheat marked as detected. Continue? (Y/N): ";
+            std::cerr << "[!] Cheat marked as detected. Continue? (Y/N): ";
             std::string response;
-
             std::getline(std::cin, response);
 
             if (response.empty() || (response[0] != 'Y' && response[0] != 'y')) {
@@ -193,21 +170,17 @@ int main() {
             }
         }
 
-		// Decrypt the downloaded cheat module using XOR decryption
-        auto decrypted = echoauth::Crypto::xor_encrypt(download_resp.file_data, Config::get_xor_key());
-
-		// Validate the decrypted PE module to ensure it is a valid executable
-        if (!echoauth::MemoryExecutor::validate_pe_header(decrypted)) {
+		// Validate PE header
+        if (!EchoAuth::ValidatePEHeader(download_resp.file_data)) {
             std::cerr << "[-] Invalid PE module\n";
             return 1;
         }
 
-		// Execute the decrypted cheat module directly from memory without writing to disk
-        echoauth::MemoryExecutor::execute_from_memory(decrypted, "");
+		// Execute the cheat module directly from memory without writing to disk
+        EchoAuth::ExecuteFromMemory(download_resp.file_data, "");
 
         // Clear sensitive data from memory after execution
-        echoauth::Security::secure_clear(download_resp.file_data);
-        echoauth::Security::secure_clear(decrypted);
+        EchoAuth::SecureClear(download_resp.file_data);
 
         return 0;
 
