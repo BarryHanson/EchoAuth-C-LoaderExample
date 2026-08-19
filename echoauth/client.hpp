@@ -169,6 +169,26 @@ public:
     );
 
     /**
+     * Verify loader integrity by comparing hash with server
+     * @param loader_id ID of the loader to verify
+     * @return true if hash matches server's stored hash
+     */
+    bool verify_loader_hash(int loader_id);
+
+    /**
+     * Get loader hash information from server
+     * @param loader_id ID of the loader
+     * @return JSON response with loaderHash and enforceHashVerification
+     */
+    std::string get_loader_hash_info(int loader_id);
+
+    /**
+     * Calculate SHA-256 hash of current executable
+     * @return SHA-256 hash in hex format, or empty string on error
+     */
+    static std::string calculate_current_hash();
+
+    /**
      * Make HTTP GET request
      */
     std::string http_get(

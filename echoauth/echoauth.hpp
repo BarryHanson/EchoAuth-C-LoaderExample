@@ -52,6 +52,12 @@ namespace EchoAuth {
         return g_client->log_event(message, level);
     }
 
+    // ===== Hash Verification (Phase 3) =====
+    inline bool VerifyLoaderHash(int loader_id) {
+        if (!g_client) return false;
+        return g_client->verify_loader_hash(loader_id);
+    }
+
     // ===== Direct Crypto/Utility Access (if needed) =====
     inline std::vector<unsigned char> XorEncrypt(const std::vector<unsigned char>& data, const std::string& key) {
         return echoauth::Crypto::xor_encrypt(data, key);
